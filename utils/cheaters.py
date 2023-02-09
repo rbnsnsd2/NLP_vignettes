@@ -208,7 +208,7 @@ class dctConstr():
         return out
 
     def bow_to_vec(self, bow):
-        vec = np.zeros(self.num_terms + 1)
+        vec = np.zeros(self.num_terms)
         for idx, _ct in bow:
             vec[idx] = _ct
         return vec
@@ -237,69 +237,6 @@ class dctConstr():
                 _terms = self.segmenter(document)
                 bow = self.terms_to_bow(_terms)
                 return bow
-
-
-def non_exclusive_chats(df):
-    import pandas as pd
-    from gensim import models, similarities
-
-    dct = dctConstr(
-        stop_words=["i", "you", "a", ""],
-        ignore_case=True)
-
-    print("constructing dictionary")
-    for chat in df.chatline.tolist():
-        dct.constructor(chat)
-    dct.trimmer(min=5)
-
-    print("converting corpus to bow")
-    corp = df.chatline.tolist()
-    bow = [dct(chat) for chat in corp]
-    idx_to_terms = {i: j for j, i in dct.terms.items()}
-    num_topics = 100
-    print("Calculating LSA")
-    lsa = models.LsiModel(bow, id2word=idx_to_terms, num_topics=num_topics)
-    print("Transforming corpus into LSA-space")
-    corpus_lsa = lsa[bow]
-    print("Calculating the matrix similarities")
-    index_lsa = similarities.MatrixSimilarity(corpus_lsa, num_best=2, num_features=dct.num_terms)
-
-    print("Iterating through each of the chats, finding their NN and checking labels")
-    exclusive_chats = []
-    occluded_chats = []
-    for i, l_chat in enumerate(corpus_lsa):
-        nn, cosine = index_lsa[l_chat][-1]
-        match = []
-        if cosine >= 0.94:
-            if i not in occluded_chats:
-                if df.subtopic1.iloc[i] != df.subtopic1.iloc[nn]:
-                    # print(f"{df.chatline.iloc[i]}::{df.subtopic1.iloc[i]}")
-                    # print(f"{df.chatline.iloc[nn]}::{df.subtopic1.iloc[nn]}")
-                    # print()
-                    match.append(True)
-                if df.topic1.iloc[i] != df.topic1.iloc[nn]:
-                    # print(f"{df.chatline.iloc[i]}::{df.topic1.iloc[i]}")
-                    # print(f"{df.chatline.iloc[nn]}::{df.topic1.iloc[nn]}")
-                    # print()
-                    match.append(True)
-                if df.sentiment.iloc[i] != df.sentiment.iloc[nn]:
-                    print(f"{df.chatline.iloc[i]}::{df.sentiment.iloc[i]}")
-                    print(f"{df.chatline.iloc[nn]}::{df.sentiment.iloc[nn]}")
-                    print()
-
-                    match.append(True)
-            if any(match):
-                occluded_chats.extend([i, nn])
-        else:
-            exclusive_chats.append(i)
-
-    _out = [df.chatline.iloc[i] for i in occluded_chats]
-    df_out = pd.DataFrame(data={"chatline": _out,
-                                "topic1": [""]*len(_out),
-                                "subtopic1": [""]*len(_out),
-                                "sentiment": [""]*len(_out)})
-    df_out.to_csv("occluded_chats.csv", index=False)
-    return f"Of the {len(df)} chatlines, {len(df_out)} were non-exclusive"
 
 
 class modelBuilder:
@@ -371,35 +308,3 @@ class modelBuilder:
         with open(complete_path, 'wb') as f:
             pickle.dump(self.model, f, protocol=pickle.HIGHEST_PROTOCOL)
             print(f"saved model to:{complete_path}")
-
-def select_neutrals(dataframe, column_name, neutral, scaling):
-    """
-    since there are so many neutrals, we need to deal with the accuracy 
-    paradox directly. Extract all non-neutrals, and add back no more 
-    than 2x (scaling) as many neutrals with random selection...
-    """
-    from random import randrange
-    def rand(exclude):
-        r = None
-        while r in [exclude, None, np.nan]:
-            r = randrange(0, len(dataframe))
-            return r
-
-    pm_sent = []
-    for i, item in enumerate(dataframe[column_name].values):
-        if item in [neutral, np.nan]:
-            pass
-        else:
-            pm_sent.append(i)
-
-    pm_len = len(pm_sent)
-    while len(pm_sent) <= (scaling * pm_len) + pm_len:
-        pm_sent.append(rand(pm_sent))
-    print(f'<<<without {neutral} there are {pm_len} records in df, \
-{len(pm_sent)} after')
-    return pm_sent
-
-
-def df_selected(dfq, column_name, neutral, scaling=1):
-    selected_lines = select_neutrals(dfq, column_name, neutral, scaling)
-    return dfq.iloc[selected_lines]
